@@ -22,10 +22,12 @@ extern "C" {
   }
 
   // Evaluate a bulk of parent nodes on GPU using lb1
-  __global__ void evaluate_gpu_lb1 (const int jobs, const int size, Node* parents_d, const lb1_bound_data  lbound1_d, int* bounds)
+  __global__ void evaluate_gpu_lb1 (const int jobs, const int size, Node* parents_d, const lb1_bound_data  lbound1_d, int* nb_jobs_d, int* nb_machines_d, int* bounds)
   {
     int threadId = blockIdx.x * blockDim.x + threadIdx.x;
-
+    int nb_jobs = *nb_jobs_d;
+    int nb_machines = *nb_machines_d;
+    
     if (threadId < size) {
       const int parentId = threadId / jobs; 
       const int k = threadId % jobs; 
@@ -36,7 +38,7 @@ extern "C" {
       // We evaluate all permutations by varying index k from limit1 forward
       if (k >= limit1+1) {
 	swap_cuda(&parent.prmu[depth],&parent.prmu[k]);
-	lb1_bound_gpu(lbound1_d, parent.prmu, limit1+1, jobs, &bounds[threadId]);
+	lb1_bound_gpu(lbound1_d, nb_jobs, nb_machines, parent.prmu, limit1+1, jobs, &bounds[threadId]);
 	//swap_cuda(&parent.prmu[depth],&parent.prmu[k]);
       }
     }
@@ -48,7 +50,7 @@ extern "C" {
     to the other lower bounds.
   */
   // Evaluate a bulk of parent nodes on GPU using lb1_d.
-  __global__ void evaluate_gpu_lb1_d(const int jobs, const int size, Node* parents_d, const lb1_bound_data lbound1_d, int* bounds)
+  __global__ void evaluate_gpu_lb1_d(const int jobs, const int size, Node* parents_d, const lb1_bound_data lbound1_d, int nb_jobs_d, int nb_machines_d, int* bounds)
   {
     int parentId = blockIdx.x * blockDim.x + threadIdx.x;
     
@@ -58,7 +60,7 @@ extern "C" {
       // Vector of integers of size MAX_JOBS
       int lb_begin[MAX_JOBS];
     
-      lb1_children_bounds_gpu(lbound1_d, parent.prmu, parent.limit1, jobs, lb_begin);
+      lb1_children_bounds_gpu(lbound1_d, nb_jobs_d, nb_machines_d, parent.prmu, parent.limit1, jobs, lb_begin);
 
       for(int k = 0; k < jobs; k++) {
 	if (k >= parent.limit1+1) {
@@ -70,9 +72,11 @@ extern "C" {
   }
 
   // Evaluate a bulk of parent nodes on GPU using lb2.
-  __global__ void evaluate_gpu_lb2(const int jobs, const int size, int best, Node* parents_d, const lb1_bound_data lbound1_d, const lb2_bound_data lbound2_d, int* bounds)
+  __global__ void evaluate_gpu_lb2(const int jobs, const int size, int best, Node* parents_d, const lb1_bound_data lbound1_d, const lb2_bound_data lbound2_d, int* nb_jobs_d, int* nb_machines_d, int* bounds)
   {
     int threadId = blockIdx.x * blockDim.x + threadIdx.x;
+    int nb_jobs = *nb_jobs_d;
+    int nb_machines = *nb_machines_d;
 
     if (threadId < size) {
       const int parentId = threadId / jobs; 
@@ -84,29 +88,29 @@ extern "C" {
       // We evaluate all permutations by varying index k from limit1 forward
       if (k >= limit1+1) {
 	swap_cuda(&parent.prmu[depth],&parent.prmu[k]);
-	lb2_bound_gpu(lbound1_d, lbound2_d, parent.prmu, limit1+1, jobs, best, &bounds[threadId]);
+	lb2_bound_gpu(lbound1_d, lbound2_d, nb_jobs, nb_machines, parent.prmu, limit1+1, jobs, best, &bounds[threadId]);
 	//swap_cuda(&parent.prmu[depth],&parent.prmu[k]);
       }
     }
   } 
  
 
-  void evaluate_gpu(const int jobs, const int lb, const int size, const int nbBlocks, const int nbBlocks_lb1_d, int* best, const lb1_bound_data lbound1, const lb2_bound_data lbound2, Node* parents, int* bounds)
+  void evaluate_gpu(const int jobs, const int lb, const int size, const int nbBlocks, const int nbBlocks_lb1_d, int* best, const lb1_bound_data lbound1, int* nb_jobs_d, int* nb_machines_d, const lb2_bound_data lbound2, Node* parents, int* bounds)
   {
     // 1D grid of 1D nbBlocks(_lb1_d) blocks with block size BLOCK_SIZE
     switch (lb) {
     case 0: // lb1_d
-      evaluate_gpu_lb1_d<<<nbBlocks_lb1_d, BLOCK_SIZE>>>(jobs, size, parents, lbound1, bounds);
+      evaluate_gpu_lb1_d<<<nbBlocks_lb1_d, BLOCK_SIZE>>>(jobs, size, parents, lbound1, *nb_jobs_d, *nb_machines_d, bounds);
       return;
       break;
 
     case 1: // lb1
-      evaluate_gpu_lb1<<<nbBlocks, BLOCK_SIZE>>>(jobs, size, parents, lbound1, bounds);
+      evaluate_gpu_lb1<<<nbBlocks, BLOCK_SIZE>>>(jobs, size, parents, lbound1, nb_jobs_d, nb_machines_d, bounds);
       return;
       break;
 
     case 2: // lb2
-      evaluate_gpu_lb2<<<nbBlocks, BLOCK_SIZE>>>(jobs, size, *best, parents, lbound1, lbound2, bounds);
+      evaluate_gpu_lb2<<<nbBlocks, BLOCK_SIZE>>>(jobs, size, *best, parents, lbound1, lbound2, nb_jobs_d, nb_machines_d, bounds);
       return;
       break;
     }

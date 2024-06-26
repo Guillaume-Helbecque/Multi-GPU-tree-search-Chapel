@@ -367,14 +367,20 @@ void pfsp_search(const int inst, const int lb, const int m, const int M, int* be
   int* p_times_d;
   int* min_heads_d;
   int* min_tails_d;
+  int* nb_jobs1_d;
+  int* nb_machines1_d;
 
   // Allocating and copying memory necessary for deep copy of lbound1
   cudaMalloc((void**)&p_times_d, jobs*machines*sizeof(int));
   cudaMalloc((void**)&min_heads_d, machines*sizeof(int));
   cudaMalloc((void**)&min_tails_d, machines*sizeof(int));
+  cudaMalloc((void**)&nb_jobs1_d, sizeof(int));
+  cudaMalloc((void**)&nb_machines1_d, sizeof(int));
   cudaMemcpy(p_times_d, lbound1->p_times, (jobs*machines)*sizeof(int), cudaMemcpyHostToDevice);
   cudaMemcpy(min_heads_d, lbound1->min_heads, machines*sizeof(int), cudaMemcpyHostToDevice);
   cudaMemcpy(min_tails_d, lbound1->min_tails, machines*sizeof(int), cudaMemcpyHostToDevice);
+  cudaMemcpy(nb_jobs1_d, &lbound1->nb_jobs, sizeof(int), cudaMemcpyHostToDevice);
+  cudaMemcpy(nb_machines1_d, &lbound2->nb_machines, sizeof(int), cudaMemcpyHostToDevice);
   
   // Deep copy of lbound1
   lbound1_d.p_times = p_times_d;
@@ -447,7 +453,7 @@ void pfsp_search(const int inst, const int lb, const int m, const int M, int* be
       cudaMemcpy(parents_d, parents, poolSize *sizeof(Node), cudaMemcpyHostToDevice);
 
       // numBounds is the 'size' of the problem
-      evaluate_gpu(jobs, lb, numBounds, nbBlocks, nbBlocks_lb1_d, best, lbound1_d, lbound2_d, parents_d, bounds_d);
+      evaluate_gpu(jobs, lb, numBounds, nbBlocks, nbBlocks_lb1_d, best, lbound1_d, nb_jobs1_d, nb_machines1_d, lbound2_d, parents_d, bounds_d);
       
       cudaMemcpy(bounds, bounds_d, numBounds * sizeof(int), cudaMemcpyDeviceToHost);
 
