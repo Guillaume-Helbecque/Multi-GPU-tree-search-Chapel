@@ -235,19 +235,19 @@ extern "C" {
   
   void print_info(const lb1_bound_data* lbound1_d)
   {
-    print_info_cuda<<<200,512>>>(lbound1_d);
+    print_info_cuda<<<2000,512>>>(lbound1_d);
     
     return;
   }
 
   void print_info_lb2(const lb2_bound_data* lbound2)
   {
-    print_info_cuda2<<<200,512>>>(lbound2);
+    print_info_cuda2<<<2000,512>>>(lbound2);
   }
 
   void print_info_lb2_d(const lb2_bound_data lbound2_d){
 
-    print_info_cuda2_d<<<200,512>>>(lbound2_d);
+    print_info_cuda2_d<<<2000,512>>>(lbound2_d);
   }
   
 #ifdef __cplusplus

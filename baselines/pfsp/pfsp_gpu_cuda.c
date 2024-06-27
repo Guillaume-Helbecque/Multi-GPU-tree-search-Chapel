@@ -468,7 +468,7 @@ void pfsp_search(const int inst, const int lb, const int m, const int M, int* be
   cudaMalloc((void**)&bounds_d, (jobs*M) * sizeof(int));
 
   clock_gettime(CLOCK_MONOTONIC_RAW, &start);
-  for(int i = 0; i < 1000000; i++)
+  for(int i = 0; i < 20000000; i++)
     print_info(lbound1);
   clock_gettime(CLOCK_MONOTONIC_RAW, &end);
   double tanalysislb1 = (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9;
@@ -476,7 +476,7 @@ void pfsp_search(const int inst, const int lb, const int m, const int M, int* be
   cudaDeviceSynchronize();
   
   clock_gettime(CLOCK_MONOTONIC_RAW, &start);
-  for(int i = 0; i < 1000000; i++)
+  for(int i = 0; i < 20000000; i++)
     print_info(lbound1_d);
   clock_gettime(CLOCK_MONOTONIC_RAW, &end);
   double tanalysislb1_d = (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9;
@@ -484,7 +484,7 @@ void pfsp_search(const int inst, const int lb, const int m, const int M, int* be
   cudaDeviceSynchronize();
   
   clock_gettime(CLOCK_MONOTONIC_RAW, &start);
-  for(int i = 0; i < 1000000; i++)
+  for(int i = 0; i < 20000000; i++)
     print_info_lb2(lbound2);
   clock_gettime(CLOCK_MONOTONIC_RAW, &end);
   double tanalysislb2 = (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9;
@@ -492,7 +492,7 @@ void pfsp_search(const int inst, const int lb, const int m, const int M, int* be
   cudaDeviceSynchronize();
 
   clock_gettime(CLOCK_MONOTONIC_RAW, &start);
-  for(int i = 0; i < 1000000; i++)
+  for(int i = 0; i < 20000000; i++)
     print_info_lb2_d(lbound2_d);
   clock_gettime(CLOCK_MONOTONIC_RAW, &end);
   double tanalysislb2_d = (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9;
