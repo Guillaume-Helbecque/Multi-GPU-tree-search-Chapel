@@ -115,6 +115,141 @@ extern "C" {
       break;
     }
   }
+
+  __global__ void print_info_cuda(const lb1_bound_data* lbound1_d)
+  {
+    // printf("Arrived here\n");
+    // printf("For lbound1_d data:\n lbound1_d->jobs = %d, lbound1_d->nb_machines = %d\n",lbound1_d->nb_jobs, lbound1_d->nb_machines);
+    // printf("p_times: ");
+    // for(int i = 0; i < lbound1_d->nb_jobs*lbound1_d->nb_machines; i++){
+    //   printf("%d ", lbound1_d->p_times[i]);
+    // }
+    // printf("\n");
+
+    // printf("min_heads: ");
+    // for(int i = 0; i < lbound1_d->nb_machines; i++){
+    //   printf("%d ", lbound1_d->min_heads[i]);
+    // }
+    // printf("\n");
+    
+    // printf("min_tails: ");
+    // for(int i = 0; i < lbound1_d->nb_machines; i++){
+    //   printf("%d ", lbound1_d->min_tails[i]);
+    // }
+    // printf("\n");
+
+    int sum = 0;
+    
+    for(int i = 0; i < lbound1_d->nb_jobs*lbound1_d->nb_machines; i++){
+      sum += lbound1_d->p_times[i];
+    }
+    
+    for(int i = 0; i < lbound1_d->nb_machines; i++){
+      sum += lbound1_d->min_heads[i];
+    }
+    
+    for(int i = 0; i < lbound1_d->nb_machines; i++){
+      sum += lbound1_d->min_tails[i];
+    }
+   
+    return;
+  }
+
+   __global__ void print_info_cuda2(const lb2_bound_data* lbound2)
+  {
+    // printf("Arrived here\n");
+    // printf("For lbound1_d data:\n lbound1_d->jobs = %d, lbound1_d->nb_machines = %d\n",lbound1_d->nb_jobs, lbound1_d->nb_machines);
+    // printf("p_times: ");
+    // for(int i = 0; i < lbound1_d->nb_jobs*lbound1_d->nb_machines; i++){
+    //   printf("%d ", lbound1_d->p_times[i]);
+    // }
+    // printf("\n");
+
+    // printf("min_heads: ");
+    // for(int i = 0; i < lbound1_d->nb_machines; i++){
+    //   printf("%d ", lbound1_d->min_heads[i]);
+    // }
+    // printf("\n");
+    
+    // printf("min_tails: ");
+    // for(int i = 0; i < lbound1_d->nb_machines; i++){
+    //   printf("%d ", lbound1_d->min_tails[i]);
+    // }
+    // printf("\n");
+
+    int sum = 0;
+    
+    for(int i = 0; i < lbound2->nb_machine_pairs; i++){
+      sum += lbound2->lags[i];
+    }
+    
+    for(int i = 0; i < lbound2->nb_machine_pairs; i++){
+      sum += lbound2->machine_pairs_1[i];
+    }
+    
+    for(int i = 0; i < lbound2->nb_machine_pairs; i++){
+      sum += lbound2->machine_pairs_2[i];
+    }
+   
+    return;
+  }
+
+     __global__ void print_info_cuda2_d(const lb2_bound_data lbound2)
+  {
+    // printf("Arrived here\n");
+    // printf("For lbound1_d data:\n lbound1_d->jobs = %d, lbound1_d->nb_machines = %d\n",lbound1_d->nb_jobs, lbound1_d->nb_machines);
+    // printf("p_times: ");
+    // for(int i = 0; i < lbound1_d->nb_jobs*lbound1_d->nb_machines; i++){
+    //   printf("%d ", lbound1_d->p_times[i]);
+    // }
+    // printf("\n");
+
+    // printf("min_heads: ");
+    // for(int i = 0; i < lbound1_d->nb_machines; i++){
+    //   printf("%d ", lbound1_d->min_heads[i]);
+    // }
+    // printf("\n");
+    
+    // printf("min_tails: ");
+    // for(int i = 0; i < lbound1_d->nb_machines; i++){
+    //   printf("%d ", lbound1_d->min_tails[i]);
+    // }
+    // printf("\n");
+
+    int sum = 0;
+    
+    for(int i = 0; i < lbound2.nb_machine_pairs; i++){
+      sum += lbound2.lags[i];
+    }
+    
+    for(int i = 0; i < lbound2.nb_machine_pairs; i++){
+      sum += lbound2.machine_pairs_1[i];
+    }
+    
+    for(int i = 0; i < lbound2.nb_machine_pairs; i++){
+      sum += lbound2.machine_pairs_2[i];
+    }
+   
+    return;
+  }
+  
+  void print_info(const lb1_bound_data* lbound1_d)
+  {
+    print_info_cuda<<<200,512>>>(lbound1_d);
+    
+    return;
+  }
+
+  void print_info_lb2(const lb2_bound_data* lbound2)
+  {
+    print_info_cuda2<<<200,512>>>(lbound2);
+  }
+
+  void print_info_lb2_d(const lb2_bound_data lbound2_d){
+
+    print_info_cuda2_d<<<200,512>>>(lbound2_d);
+  }
+  
 #ifdef __cplusplus
 }
 #endif
