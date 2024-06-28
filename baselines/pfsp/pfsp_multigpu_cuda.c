@@ -551,7 +551,7 @@ void pfsp_search(const int inst, const int lb, const int m, const int M, const i
 	cudaMemcpy(parents_d, parents, poolSize *sizeof(Node), cudaMemcpyHostToDevice);
 
 	// numBounds is the 'size' of the problem
- 	evaluate_gpu(jobs, lb, numBounds, nbBlocks, nbBlocks_lb1_d, &best_l, lbound1_d, nb_jobs1_d, nb_machines1_d, lbound2_d, parents_d, bounds_d); 
+ 	evaluate_gpu(jobs, lb, numBounds, nbBlocks, nbBlocks_lb1_d, &best_l, lbound1_d, lbound2_d, parents_d, bounds_d); 
 	
         cudaMemcpy(bounds, bounds_d, numBounds * sizeof(int), cudaMemcpyDeviceToHost);
 
@@ -639,21 +639,26 @@ void pfsp_search(const int inst, const int lb, const int m, const int M, const i
     //printf("\nTime for GPU[%d] = %f, nb of nodes = %lld, nb of sols = %lld\n", gpuID, time_partial - startTime, tree, sol);
     
     // OpenMP environment freeing variables
+    // For device
     cudaFree(parents_d);
     cudaFree(bounds_d);
-    cudaFree(p_times_d);
-    cudaFree(min_heads_d);
-    cudaFree(min_tails_d);
-    cudaFree(nb_jobs1_d);
-    cudaFree(nb_machines1_d);
-    cudaFree(johnson_schedule_d);
-    cudaFree(lags_d);
-    cudaFree(machine_pairs_1_d);
-    cudaFree(machine_pairs_2_d);
-    cudaFree(machine_pair_order_d);
+    cudaFree(lbound1_h->p_times);
+    cudaFree(lbound1_h->min_heads);
+    cudaFree(lbound1_h->min_tails);
+    cudaFree(lbound2_h->johnson_schedules);
+    cudaFree(lbound2_h->lags);
+    cudaFree(lbound2_h->machine_pairs_1);
+    cudaFree(lbound2_h->machine_pairs_2);
+    cudaFree(lbound2_h->machine_pair_order);
+    cudaFree(lbound1_d);
+    cudaFree(lbound2_d);  
+    
+    //For host
+    free(lbound1_h);
+    free(lbound2_h);
     free(parents);
     free(bounds);
-
+    
 #pragma omp critical
     {
       const int poolLocSize = pool_loc->size;
