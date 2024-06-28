@@ -419,64 +419,101 @@ void pfsp_search(const int inst, const int lb, const int m, const int M, const i
     
     // TODO: add function 'copyBoundsDevice' to perform the deep copy of bounding data
     // Vectors for deep copy of lbound1 to device
-    lb1_bound_data lbound1_d;
-    int* p_times_d;
-    int* min_heads_d;
-    int* min_tails_d;
-    int* nb_jobs1_d;
-    int* nb_machines1_d;
+    lb1_bound_data* lbound1_d;
+    lb1_bound_data* lbound1_h;
     
     // Allocating and copying memory necessary for deep copy of lbound1
-    cudaMalloc((void**)&p_times_d, jobs * machines * sizeof(int));
-    cudaMalloc((void**)&min_heads_d, machines * sizeof(int));
-    cudaMalloc((void**)&min_tails_d, machines * sizeof(int));
-    cudaMalloc((void**)&nb_jobs1_d, sizeof(int));
-    cudaMalloc((void**)&nb_machines1_d, sizeof(int));
-    cudaMemcpy(p_times_d, lbound1->p_times, jobs * machines * sizeof(int), cudaMemcpyHostToDevice);
-    cudaMemcpy(min_heads_d, lbound1->min_heads, machines * sizeof(int), cudaMemcpyHostToDevice);
-    cudaMemcpy(min_tails_d, lbound1->min_tails, machines * sizeof(int), cudaMemcpyHostToDevice);
-    cudaMemcpy(nb_jobs1_d, &lbound1->nb_jobs, sizeof(int), cudaMemcpyHostToDevice);
-    cudaMemcpy(nb_machines1_d, &lbound2->nb_machines, sizeof(int), cudaMemcpyHostToDevice);
+    lbound1_h = (lb1_bound_data*)malloc(sizeof(lb1_bound_data));
+    memcpy(lbound1_h, lbound1, sizeof(lb1_bound_data));
+    cudaMalloc((void**)&(lbound1_h->p_times), jobs*machines*sizeof(int));
+    cudaMalloc((void**)&(lbound1_h->min_heads), machines*sizeof(int));
+    cudaMalloc((void**)&(lbound1_h->min_tails), machines*sizeof(int));
+    cudaMemcpy(lbound1_h->p_times, lbound1->p_times, (jobs*machines)*sizeof(int), cudaMemcpyHostToDevice);
+    cudaMemcpy(lbound1_h->min_heads, lbound1->min_heads, machines*sizeof(int), cudaMemcpyHostToDevice);
+    cudaMemcpy(lbound1_h->min_tails, lbound1->min_tails, machines*sizeof(int), cudaMemcpyHostToDevice); 
+    cudaMalloc((void**)&lbound1_d, sizeof(lb1_bound_data));
+    cudaMemcpy(lbound1_d,lbound1_h, sizeof(lb1_bound_data),cudaMemcpyHostToDevice);
+    
 
-    // Deep copy of lbound1
-    lbound1_d.p_times = p_times_d;
-    lbound1_d.min_heads = min_heads_d;
-    lbound1_d.min_tails = min_tails_d;
-    lbound1_d.nb_jobs = lbound1->nb_jobs;
-    lbound1_d.nb_machines = lbound1->nb_machines;
-    //lbound1_d.nb_jobs = *nb_jobs1;
-    //lbound1_d.nb_machines = *nb_machines1;
+    /* lb1_bound_data lbound1_d; */
+    /* int* p_times_d; */
+    /* int* min_heads_d; */
+    /* int* min_tails_d; */
+    /* int* nb_jobs1_d; */
+    /* int* nb_machines1_d; */
+    
+    /* // Allocating and copying memory necessary for deep copy of lbound1 */
+    /* cudaMalloc((void**)&p_times_d, jobs * machines * sizeof(int)); */
+    /* cudaMalloc((void**)&min_heads_d, machines * sizeof(int)); */
+    /* cudaMalloc((void**)&min_tails_d, machines * sizeof(int)); */
+    /* cudaMalloc((void**)&nb_jobs1_d, sizeof(int)); */
+    /* cudaMalloc((void**)&nb_machines1_d, sizeof(int)); */
+    /* cudaMemcpy(p_times_d, lbound1->p_times, jobs * machines * sizeof(int), cudaMemcpyHostToDevice); */
+    /* cudaMemcpy(min_heads_d, lbound1->min_heads, machines * sizeof(int), cudaMemcpyHostToDevice); */
+    /* cudaMemcpy(min_tails_d, lbound1->min_tails, machines * sizeof(int), cudaMemcpyHostToDevice); */
+    /* cudaMemcpy(nb_jobs1_d, &lbound1->nb_jobs, sizeof(int), cudaMemcpyHostToDevice); */
+    /* cudaMemcpy(nb_machines1_d, &lbound2->nb_machines, sizeof(int), cudaMemcpyHostToDevice); */
+
+    /* // Deep copy of lbound1 */
+    /* lbound1_d.p_times = p_times_d; */
+    /* lbound1_d.min_heads = min_heads_d; */
+    /* lbound1_d.min_tails = min_tails_d; */
+    /* lbound1_d.nb_jobs = lbound1->nb_jobs; */
+    /* lbound1_d.nb_machines = lbound1->nb_machines; */
+    /* //lbound1_d.nb_jobs = *nb_jobs1; */
+    /* //lbound1_d.nb_machines = *nb_machines1; */
 
     // Vectors for deep copy of lbound2 to device
-    lb2_bound_data lbound2_d;
-    int *johnson_schedule_d;
-    int *lags_d;
-    int *machine_pairs_1_d;
-    int *machine_pairs_2_d;
-    int *machine_pair_order_d;
-
+    lb2_bound_data* lbound2_d;
+    lb2_bound_data* lbound2_h;
+    
     // Allocating and copying memory necessary for deep copy of lbound2
+    lbound2_h = (lb2_bound_data*)malloc(sizeof(lb2_bound_data));
+    memcpy(lbound2_h, lbound2, sizeof(lb2_bound_data));
+    
     int nb_mac_pairs = lbound2->nb_machine_pairs;
-    cudaMalloc((void**)&johnson_schedule_d, nb_mac_pairs * jobs * sizeof(int));
-    cudaMalloc((void**)&lags_d, nb_mac_pairs * jobs * sizeof(int));
-    cudaMalloc((void**)&machine_pairs_1_d, nb_mac_pairs * sizeof(int));
-    cudaMalloc((void**)&machine_pairs_2_d, nb_mac_pairs * sizeof(int));
-    cudaMalloc((void**)&machine_pair_order_d, nb_mac_pairs * sizeof(int));
-    cudaMemcpy(johnson_schedule_d, lbound2->johnson_schedules, nb_mac_pairs * jobs * sizeof(int), cudaMemcpyHostToDevice);
-    cudaMemcpy(lags_d, lbound2->lags, nb_mac_pairs * jobs * sizeof(int), cudaMemcpyHostToDevice);
-    cudaMemcpy(machine_pairs_1_d, lbound2->machine_pairs_1, nb_mac_pairs * sizeof(int), cudaMemcpyHostToDevice);
-    cudaMemcpy(machine_pairs_2_d, lbound2->machine_pairs_2, nb_mac_pairs * sizeof(int), cudaMemcpyHostToDevice);
-    cudaMemcpy(machine_pair_order_d, lbound2->machine_pair_order, nb_mac_pairs * sizeof(int), cudaMemcpyHostToDevice);
+    cudaMalloc((void**)&(lbound2_h->johnson_schedules), (nb_mac_pairs*jobs) * sizeof(int));
+    cudaMalloc((void**)&(lbound2_h->lags), (nb_mac_pairs*jobs) * sizeof(int));
+    cudaMalloc((void**)&(lbound2_h->machine_pairs_1), nb_mac_pairs * sizeof(int));
+    cudaMalloc((void**)&(lbound2_h->machine_pairs_2), nb_mac_pairs * sizeof(int));
+    cudaMalloc((void**)&(lbound2_h->machine_pair_order), nb_mac_pairs * sizeof(int));
+    cudaMemcpy(lbound2_h->johnson_schedules, lbound2->johnson_schedules, (nb_mac_pairs*jobs) * sizeof(int), cudaMemcpyHostToDevice);
+    cudaMemcpy(lbound2_h->lags, lbound2->lags, (nb_mac_pairs*jobs) * sizeof(int), cudaMemcpyHostToDevice);
+    cudaMemcpy(lbound2_h->machine_pairs_1, lbound2->machine_pairs_1, nb_mac_pairs * sizeof(int), cudaMemcpyHostToDevice);
+    cudaMemcpy(lbound2_h->machine_pairs_2, lbound2->machine_pairs_2, nb_mac_pairs * sizeof(int), cudaMemcpyHostToDevice);
+    cudaMemcpy(lbound2_h->machine_pair_order, lbound2->machine_pair_order, nb_mac_pairs * sizeof(int), cudaMemcpyHostToDevice);
+    cudaMalloc((void**)&lbound2_d, sizeof(lb2_bound_data));
+    cudaMemcpy(lbound2_d,lbound2_h, sizeof(lb2_bound_data),cudaMemcpyHostToDevice);
+    
+    /* lb2_bound_data lbound2_d; */
+    /* int *johnson_schedule_d; */
+    /* int *lags_d; */
+    /* int *machine_pairs_1_d; */
+    /* int *machine_pairs_2_d; */
+    /* int *machine_pair_order_d; */
 
-    // Deep copy of lbound2
-    lbound2_d.johnson_schedules = johnson_schedule_d;
-    lbound2_d.lags = lags_d;
-    lbound2_d.machine_pairs_1 = machine_pairs_1_d;
-    lbound2_d.machine_pairs_2 = machine_pairs_2_d;
-    lbound2_d.machine_pair_order = machine_pair_order_d;
-    lbound2_d.nb_machine_pairs = lbound2->nb_machine_pairs;
-    lbound2_d.nb_jobs = lbound2->nb_jobs;
-    lbound2_d.nb_machines = lbound2->nb_machines;
+    /* // Allocating and copying memory necessary for deep copy of lbound2 */
+    /* int nb_mac_pairs = lbound2->nb_machine_pairs; */
+    /* cudaMalloc((void**)&johnson_schedule_d, nb_mac_pairs * jobs * sizeof(int)); */
+    /* cudaMalloc((void**)&lags_d, nb_mac_pairs * jobs * sizeof(int)); */
+    /* cudaMalloc((void**)&machine_pairs_1_d, nb_mac_pairs * sizeof(int)); */
+    /* cudaMalloc((void**)&machine_pairs_2_d, nb_mac_pairs * sizeof(int)); */
+    /* cudaMalloc((void**)&machine_pair_order_d, nb_mac_pairs * sizeof(int)); */
+    /* cudaMemcpy(johnson_schedule_d, lbound2->johnson_schedules, nb_mac_pairs * jobs * sizeof(int), cudaMemcpyHostToDevice); */
+    /* cudaMemcpy(lags_d, lbound2->lags, nb_mac_pairs * jobs * sizeof(int), cudaMemcpyHostToDevice); */
+    /* cudaMemcpy(machine_pairs_1_d, lbound2->machine_pairs_1, nb_mac_pairs * sizeof(int), cudaMemcpyHostToDevice); */
+    /* cudaMemcpy(machine_pairs_2_d, lbound2->machine_pairs_2, nb_mac_pairs * sizeof(int), cudaMemcpyHostToDevice); */
+    /* cudaMemcpy(machine_pair_order_d, lbound2->machine_pair_order, nb_mac_pairs * sizeof(int), cudaMemcpyHostToDevice); */
+
+    /* // Deep copy of lbound2 */
+    /* lbound2_d.johnson_schedules = johnson_schedule_d; */
+    /* lbound2_d.lags = lags_d; */
+    /* lbound2_d.machine_pairs_1 = machine_pairs_1_d; */
+    /* lbound2_d.machine_pairs_2 = machine_pairs_2_d; */
+    /* lbound2_d.machine_pair_order = machine_pair_order_d; */
+    /* lbound2_d.nb_machine_pairs = lbound2->nb_machine_pairs; */
+    /* lbound2_d.nb_jobs = lbound2->nb_jobs; */
+    /* lbound2_d.nb_machines = lbound2->nb_machines; */
     
     // Allocating parents vector on CPU and GPU
     Node* parents = (Node*)malloc(M * sizeof(Node));
