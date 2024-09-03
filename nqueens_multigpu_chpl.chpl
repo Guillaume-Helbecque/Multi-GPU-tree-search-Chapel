@@ -87,10 +87,8 @@ proc decompose(const parent: Node, ref tree_loc: uint, ref num_sol: uint, ref po
 }
 
 // Evaluate a bulk of parent nodes on GPU.
-proc evaluate_gpu(const parents_d: [] Node, const size)
+proc evaluate_gpu(const parents_d: [] Node, const size, ref labels_d)
 {
-  var labels: [0..#size] uint(8) = noinit;
-
   @assertOnGpu
   foreach threadId in 0..#size {
     const parentId = threadId / N;
@@ -112,11 +110,9 @@ proc evaluate_gpu(const parents_d: [] Node, const size)
                      pbi != queen_num + (depth - i));
         }
       }
-      labels[threadId] = isSafe;
+      labels_d[threadId] = isSafe;
     }
   }
-
-  return labels;
 }
 
 // Generate children nodes (evaluated on GPU) on CPU.
@@ -142,6 +138,16 @@ proc generate_children(const ref parents: [] Node, const size: int, const ref la
     }
   }
 }
+
+class WrapperClassArrayParents {
+  forwarding var arr: [0..#M] Node = noinit;
+}
+type WrapperArrayParents = owned WrapperClassArrayParents?;
+
+class WrapperClassArrayLabels {
+  forwarding var arr: [0..#(M*N)] uint(8) = noinit;
+}
+type WrapperArrayLabels = owned WrapperClassArrayLabels?;
 
 // Multi-GPU N-Queens search.
 proc nqueens_search(ref exploredTree: uint, ref exploredSol: uint, ref elapsedTime: real)
@@ -203,6 +209,17 @@ proc nqueens_search(ref exploredTree: uint, ref exploredSol: uint, ref elapsedTi
       pool_loc.size += l-c;
     }
 
+    var parents: [0..#M] Node = noinit;
+    var labels: [0..#(M*N)] uint(8) = noinit;
+
+    var parents_d: WrapperArrayParents;
+    var labels_d: WrapperArrayLabels;
+
+    on gpu {
+      parents_d = new WrapperArrayParents();
+      labels_d = new WrapperArrayLabels();
+    }
+
     while true {
       /*
         Each task gets its parents nodes from the pool.
@@ -210,7 +227,6 @@ proc nqueens_search(ref exploredTree: uint, ref exploredSol: uint, ref elapsedTi
       var poolSize = pool_loc.size;
       if (poolSize >= m) {
         poolSize = min(poolSize, M);
-        var parents: [0..#poolSize] Node = noinit;
         for i in 0..#poolSize {
           var hasWork = 0;
           parents[i] = pool_loc.popBack(hasWork);
@@ -218,11 +234,11 @@ proc nqueens_search(ref exploredTree: uint, ref exploredSol: uint, ref elapsedTi
         }
 
         const numLabels = N * poolSize;
-        var labels: [0..#numLabels] uint(8) = noinit;
 
         on gpu {
-          const parents_d = parents; // host-to-device
-          labels = evaluate_gpu(parents_d, numLabels);
+          parents_d!.arr = parents; // host-to-device
+          evaluate_gpu(parents_d!.arr, numLabels, labels_d!.arr);
+          labels = labels_d!.arr; // device-to-host
         }
 
         /*
