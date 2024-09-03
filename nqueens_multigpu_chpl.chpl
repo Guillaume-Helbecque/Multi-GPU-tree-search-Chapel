@@ -4,7 +4,7 @@
 
 use Time;
 
-use Pool;
+use Pool_par;
 use GpuDiagnostics;
 
 use NQueens_node;
@@ -66,7 +66,7 @@ proc isSafe(const board, const queen_num, const row_pos): uint(8)
 }
 
 // Evaluate and generate children nodes on CPU.
-proc decompose(const parent: Node, ref tree_loc: uint, ref num_sol: uint, ref pool: SinglePool(Node))
+proc decompose(const parent: Node, ref tree_loc: uint, ref num_sol: uint, ref pool: SinglePool_par(Node))
 {
   const depth = parent.depth;
 
@@ -117,7 +117,7 @@ proc evaluate_gpu(const parents_d: [] Node, const size, ref labels_d)
 
 // Generate children nodes (evaluated on GPU) on CPU.
 proc generate_children(const ref parents: [] Node, const size: int, const ref labels: [] uint(8),
-  ref exploredTree: uint, ref exploredSol: uint, ref pool: SinglePool(Node))
+  ref exploredTree: uint, ref exploredSol: uint, ref pool: SinglePool_par(Node))
 {
   for i in 0..#size  {
     const parent = parents[i];
@@ -154,8 +154,7 @@ proc nqueens_search(ref exploredTree: uint, ref exploredSol: uint, ref elapsedTi
 {
   var root = new Node(N);
 
-  var pool = new SinglePool(Node);
-
+  var pool = new SinglePool_par(Node);
   pool.pushBack(root);
 
   var timer: stopwatch;
@@ -167,7 +166,7 @@ proc nqueens_search(ref exploredTree: uint, ref exploredSol: uint, ref elapsedTi
   timer.start();
   while (pool.size < D*m) {
     var hasWork = 0;
-    var parent = pool.popFront(hasWork);
+    var parent = pool.popFrontFree(hasWork);
     if !hasWork then break;
 
     decompose(parent, exploredTree, exploredSol, pool);
@@ -195,11 +194,15 @@ proc nqueens_search(ref exploredTree: uint, ref exploredSol: uint, ref elapsedTi
   pool.front = 0;
   pool.size = 0;
 
-  coforall (gpuID, gpu) in zip(0..#D, here.gpus) with (ref pool,
-    ref eachExploredTree, ref eachExploredSol) {
+  var multiPool: [0..#D] SinglePool_par(Node);
+
+  coforall gpuID in 0..#D with (ref pool, ref eachExploredTree, ref eachExploredSol,
+    ref multiPool) {
+
+    const device = here.gpus[gpuID];
 
     var tree, sol: uint;
-    var pool_loc = new SinglePool(Node);
+    ref pool_loc = multiPool[gpuID];
 
     // each task gets its chunk
     pool_loc.elements[0..#c] = pool.elements[gpuID+f.. by D #c];
@@ -215,7 +218,7 @@ proc nqueens_search(ref exploredTree: uint, ref exploredSol: uint, ref elapsedTi
     var parents_d: WrapperArrayParents;
     var labels_d: WrapperArrayLabels;
 
-    on gpu {
+    on device {
       parents_d = new WrapperArrayParents();
       labels_d = new WrapperArrayLabels();
     }
@@ -224,18 +227,19 @@ proc nqueens_search(ref exploredTree: uint, ref exploredSol: uint, ref elapsedTi
       /*
         Each task gets its parents nodes from the pool.
       */
-      var poolSize = pool_loc.size;
-      if (poolSize >= m) {
-        poolSize = min(poolSize, M);
+      var poolSize = pool_loc.popBackBulk(m, M, parents);
+      /* var poolSize = pool_loc.size; */
+      if (poolSize > 0) {
+        /* poolSize = min(poolSize, M);
         for i in 0..#poolSize {
           var hasWork = 0;
           parents[i] = pool_loc.popBack(hasWork);
           if !hasWork then break;
-        }
+        } */
 
         const numLabels = N * poolSize;
 
-        on gpu {
+        on device {
           parents_d!.arr = parents; // host-to-device
           evaluate_gpu(parents_d!.arr, numLabels, labels_d!.arr);
           labels = labels_d!.arr; // device-to-host
@@ -281,7 +285,7 @@ proc nqueens_search(ref exploredTree: uint, ref exploredSol: uint, ref elapsedTi
   timer.start();
   while true {
     var hasWork = 0;
-    var parent = pool.popBack(hasWork);
+    var parent = pool.popBackFree(hasWork);
     if !hasWork then break;
 
     decompose(parent, exploredTree, exploredSol, pool);
