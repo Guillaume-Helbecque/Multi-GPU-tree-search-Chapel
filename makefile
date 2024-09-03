@@ -13,7 +13,7 @@ CHPL_NQUEENS_OBJECTS := $(CHPL_NQUEENS_SOURCES:.chpl=.o)
 CHPL_PFSP_OBJECTS := $(CHPL_PFSP_SOURCES:.chpl=.o)
 
 # Library paths
-CHPL_NQUEENS_LIBPATH :=
+CHPL_NQUEENS_LIBPATH := -M lib/nqueens
 CHPL_PFSP_LIBPATH := -M lib/pfsp
 
 # Build codes
