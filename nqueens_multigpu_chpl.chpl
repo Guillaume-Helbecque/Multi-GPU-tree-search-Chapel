@@ -3,6 +3,7 @@
 */
 
 use Time;
+use Random;
 use GpuDiagnostics;
 
 config const BLOCK_SIZE = 512;
@@ -205,6 +206,8 @@ proc nqueens_search(ref exploredTree: uint, ref exploredSol: uint, ref elapsedTi
 
     const device = here.gpus[gpuID];
 
+    var nSteal, nSSteal: int;
+
     var tree, sol: uint;
     ref pool_loc = multiPool[gpuID];
     var taskState: bool = BUSY;
@@ -261,16 +264,66 @@ proc nqueens_search(ref exploredTree: uint, ref exploredSol: uint, ref elapsedTi
         generate_children(parents, poolSize, labels, tree, sol, pool_loc);
       }
       else {
-        // termination
-        if (taskState == BUSY) {
-          taskState = IDLE;
-          eachTaskState[gpuID].write(IDLE);
+        // work stealing
+        var tries = 0;
+        var steal = false;
+        const victims = permute(0..#D);
+
+        label WS0 while (tries < D && steal == false) {
+          const victimID = victims[tries];
+
+          if (victimID != gpuID) { // if not me
+            ref victim = multiPool[victimID];
+            nSteal += 1;
+            var nn = 0;
+
+            label WS1 while (nn < 10) {
+              if victim.lock.compareAndSwap(false, true) { // get the lock
+                const size = victim.size;
+
+                if (size >= 2*m) {
+                  var (hasWork, p) = victim.popFrontBulkFree(m, M);
+                  if (hasWork == 0) {
+                    victim.lock.write(false); // reset lock
+                    halt("DEADCODE in work stealing");
+                  }
+
+                  /* for i in 0..#(size/2) {
+                    pool_loc.pushBack(p[i]);
+                  } */
+                  pool_loc.pushBackBulk(p);
+
+                  steal = true;
+                  nSSteal += 1;
+                  victim.lock.write(false); // reset lock
+                  break WS0;
+                }
+
+                victim.lock.write(false); // reset lock
+                break WS1;
+              }
+
+              nn += 1;
+              currentTask.yieldExecution();
+            }
+          }
+          tries += 1;
         }
-        if allIdle(eachTaskState, allTasksIdleFlag) {
-          writeln("task ", gpuID, " exits normally");
-          break;
+
+        if (steal == false) {
+          // termination
+          if (taskState == BUSY) {
+            taskState = IDLE;
+            eachTaskState[gpuID].write(IDLE);
+          }
+          if allIdle(eachTaskState, allTasksIdleFlag) {
+            writeln("task ", gpuID, " exits normally");
+            break;
+          }
+          continue;
+        } else {
+          continue;
         }
-        continue;
       }
     }
 
