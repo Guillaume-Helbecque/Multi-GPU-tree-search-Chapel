@@ -100,7 +100,7 @@ proc decompose_lb1(const lb1_data, const parent: Node, ref tree_loc: uint, ref n
       }
     } else { // if not leaf
       if (lowerbound < best) { // if child feasible
-        pool.pushBack(child);
+        pool.pushBackFree(child);
         tree_loc += 1;
       }
     }
@@ -132,7 +132,7 @@ proc decompose_lb1_d(const lb1_data, const parent: Node, ref tree_loc: uint, ref
         child.prmu = parent.prmu;
         child.prmu[parent.depth] <=> child.prmu[i];
 
-        pool.pushBack(child);
+        pool.pushBackFree(child);
         tree_loc += 1;
       }
     }
@@ -159,7 +159,7 @@ proc decompose_lb2(const lb1_data, const lb2_data, const parent: Node, ref tree_
       }
     } else { // if not leaf
       if (lowerbound < best) { // if child feasible
-        pool.pushBack(child);
+        pool.pushBackFree(child);
         tree_loc += 1;
       }
     }
@@ -315,7 +315,7 @@ proc pfsp_search(ref optimum: int, ref exploredTree: uint, ref exploredSol: uint
   var root = new Node(jobs);
 
   var pool = new SinglePool_par(Node);
-  pool.pushBack(root);
+  pool.pushBackFree(root);
 
   var allTasksIdleFlag: atomic bool = false;
   var eachTaskState: [0..#D] atomic bool = BUSY; // one task per GPU
@@ -363,7 +363,6 @@ proc pfsp_search(ref optimum: int, ref exploredTree: uint, ref exploredSol: uint
   const c = poolSize / D;
   const l = poolSize - (D-1)*c;
   const f = pool.front;
-  var lock_p: atomic bool;
 
   pool.front = 0;
   pool.size = 0;
@@ -517,14 +516,11 @@ proc pfsp_search(ref optimum: int, ref exploredTree: uint, ref exploredSol: uint
       }
     }
 
-    if lock_p.compareAndSwap(false, true) {
-      const poolLocSize = pool_loc.size;
-      for p in 0..#poolLocSize {
-        var hasWork = 0;
-        pool.pushBack(pool_loc.popBack(hasWork));
-        if !hasWork then break;
-      }
-      lock_p.write(false);
+    const poolLocSize = pool_loc.size;
+    for p in 0..#poolLocSize {
+      var hasWork = 0;
+      pool.pushBack(pool_loc.popBack(hasWork));
+      if !hasWork then break;
     }
 
     eachExploredTree[gpuID] = tree;

@@ -201,13 +201,18 @@ module Bound_johnson
   {
     const nb_jobs = lb2_data.nb_jobs;
 
+    use CTypes only c_ptrToConst;
+    const lb2_js = c_ptrToConst(lb2_data.johnson_schedules[0]);
+    const lb1_pt = c_ptrToConst(lb1_p_times[0]);
+    const lb2_lags = c_ptrToConst(lb2_data.lags[0]);
+
     for j in 0..#nb_jobs {
-      var job = lb2_data.johnson_schedules[ind*nb_jobs + j];
+      var job = lb2_js[ind*nb_jobs + j];
       // j-loop is on unscheduled jobs... (==0 if jobCour is unscheduled)
       if (flag[job] == 0) {
-        var ptm0 = lb1_p_times[ma0*nb_jobs + job];
-        var ptm1 = lb1_p_times[ma1*nb_jobs + job];
-        var lag = lb2_data.lags[ind*nb_jobs + job];
+        var ptm0 = lb1_pt[ma0*nb_jobs + job];
+        var ptm1 = lb1_pt[ma1*nb_jobs + job];
+        var lag = lb2_lags[ind*nb_jobs + job];
         // add job on ma0 and ma1
         tmp0 += ptm0;
         tmp1 = max(tmp1,tmp0 + lag);

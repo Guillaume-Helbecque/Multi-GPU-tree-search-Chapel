@@ -3,11 +3,13 @@
 */
 
 use Time;
+use Random;
 use PrivateDist;
 use GpuDiagnostics;
 
 config const BLOCK_SIZE = 512;
 
+use util;
 use Pool_par;
 
 use PFSP_node;
@@ -54,7 +56,7 @@ proc check_parameters()
 proc print_settings(): void
 {
   writeln("\n=================================================");
-  writeln("Distributed multi-GPU Chapel (", numLocales, "x", D, " GPUs)\n");
+  writeln("Distributed multi-GPU Chapel (", numLocales, " locales x ", D, " GPUs)\n");
   writeln("Resolution of PFSP Taillard's instance: ta", inst, " (m = ", machines, ", n = ", jobs, ")");
   if (ub == 0) then writeln("Initial upper bound: inf");
   else /* if (ub == 1) */ writeln("Initial upper bound: opt");
@@ -99,7 +101,7 @@ proc decompose_lb1(const lb1_data, const parent: Node, ref tree_loc: uint, ref n
       }
     } else { // if not leaf
       if (lowerbound < best) { // if child feasible
-        pool.pushBack(child);
+        pool.pushBackFree(child);
         tree_loc += 1;
       }
     }
@@ -131,7 +133,7 @@ proc decompose_lb1_d(const lb1_data, const parent: Node, ref tree_loc: uint, ref
         child.prmu = parent.prmu;
         child.prmu[parent.depth] <=> child.prmu[i];
 
-        pool.pushBack(child);
+        pool.pushBackFree(child);
         tree_loc += 1;
       }
     }
@@ -158,7 +160,7 @@ proc decompose_lb2(const lb1_data, const lb2_data, const parent: Node, ref tree_
       }
     } else { // if not leaf
       if (lowerbound < best) { // if child feasible
-        pool.pushBack(child);
+        pool.pushBackFree(child);
         tree_loc += 1;
       }
     }
@@ -171,13 +173,13 @@ proc decompose(const lb1_data, const lb2_data, const parent: Node, ref tree_loc:
 {
   select lb {
     when 0 {
-      decompose_lb1_d(lb1_data!.lb1_bound, parent, tree_loc, num_sol, best, pool);
+      decompose_lb1_d(lb1_data, parent, tree_loc, num_sol, best, pool);
     }
     when 1 {
-      decompose_lb1(lb1_data!.lb1_bound, parent, tree_loc, num_sol, best, pool);
+      decompose_lb1(lb1_data, parent, tree_loc, num_sol, best, pool);
     }
     otherwise { // 2
-      decompose_lb2(lb1_data!.lb1_bound, lb2_data!.lb2_bound, parent, tree_loc, num_sol, best, pool);
+      decompose_lb2(lb1_data, lb2_data, parent, tree_loc, num_sol, best, pool);
     }
   }
 }
@@ -296,6 +298,16 @@ proc generate_children(const ref parents: [] Node, const size: int, const ref bo
   }
 }
 
+class WrapperClassArrayParents {
+  forwarding var arr: [0..#M] Node = noinit;
+}
+type WrapperArrayParents = owned WrapperClassArrayParents?;
+
+class WrapperClassArrayBounds {
+  forwarding var arr: [0..#(M*jobs)] int(32) = noinit;
+}
+type WrapperArrayBounds = owned WrapperClassArrayBounds?;
+
 // Distributed multi-GPU PFSP search.
 proc pfsp_search(ref optimum: int, ref exploredTree: uint, ref exploredSol: uint, ref elapsedTime: real)
 {
@@ -304,7 +316,7 @@ proc pfsp_search(ref optimum: int, ref exploredTree: uint, ref exploredSol: uint
   var root = new Node(jobs);
 
   var pool = new SinglePool_par(Node);
-  pool.pushBack(root);
+  pool.pushBackFree(root);
 
   var timer: stopwatch;
 
@@ -314,21 +326,21 @@ proc pfsp_search(ref optimum: int, ref exploredTree: uint, ref exploredSol: uint
   */
   timer.start();
 
-  var lbound1_p = new WrapperLB1(jobs, machines); //lb1_bound_data(jobs, machines);
-  taillard_get_processing_times(lbound1_p!.lb1_bound.p_times, inst);
-  fill_min_heads_tails(lbound1_p!.lb1_bound);
+  var lbound1 = new lb1_bound_data(jobs, machines);
+  taillard_get_processing_times(lbound1.p_times, inst);
+  fill_min_heads_tails(lbound1);
 
-  var lbound2_p = new WrapperLB2(jobs, machines);
-  fill_machine_pairs(lbound2_p!.lb2_bound/*, LB2_FULL*/);
-  fill_lags(lbound1_p!.lb1_bound.p_times, lbound2_p!.lb2_bound);
-  fill_johnson_schedules(lbound1_p!.lb1_bound.p_times, lbound2_p!.lb2_bound);
+  var lbound2 = new lb2_bound_data(jobs, machines);
+  fill_machine_pairs(lbound2/*, LB2_FULL*/);
+  fill_lags(lbound1.p_times, lbound2);
+  fill_johnson_schedules(lbound1.p_times, lbound2);
 
   while (pool.size < D*m*numLocales) {
     var hasWork = 0;
-    var parent = pool.popFront(hasWork);
+    var parent = pool.popFrontFree(hasWork);
     if !hasWork then break;
 
-    decompose(lbound1_p, lbound2_p, parent, exploredTree, exploredSol, best, pool);
+    decompose(lbound1, lbound2, parent, exploredTree, exploredSol, best, pool);
   }
   timer.stop();
   const res1 = (timer.elapsed(), exploredTree, exploredSol);
@@ -345,17 +357,22 @@ proc pfsp_search(ref optimum: int, ref exploredTree: uint, ref exploredSol: uint
   var eachLocaleExploredTree, eachLocaleExploredSol: [PrivateSpace] uint = noinit;
   var eachLocaleBest: [PrivateSpace] int = noinit;
 
+  var eachLocaleState: [PrivateSpace] atomic bool = BUSY; // one locale per compute node
+  var allLocalesIdleFlag: atomic bool = false;
+
   const poolSize = pool.size;
   const c = poolSize / numLocales;
   const l = poolSize - (numLocales-1)*c;
   const f = pool.front;
-  var lock: atomic bool;
 
   pool.front = 0;
   pool.size = 0;
 
+  var distMultiPool: [PrivateSpace][0..#D] SinglePool_par(Node);
+
   coforall (locID, loc) in zip(0..#numLocales, Locales) with (ref pool,
-    ref eachLocaleExploredTree, ref eachLocaleExploredSol, ref eachLocaleBest) do on loc {
+    ref eachLocaleExploredTree, ref eachLocaleExploredSol, ref eachLocaleBest,
+    ref eachLocaleState, ref distMultiPool) do on loc {
 
     var eachExploredTree, eachExploredSol: [0..#D] uint = noinit;
     var eachBest: [0..#D] int = noinit;
@@ -374,19 +391,24 @@ proc pfsp_search(ref optimum: int, ref exploredTree: uint, ref exploredSol: uint
     const c_l = poolSize_l / D;
     const l_l = poolSize_l - (D-1)*c_l;
     const f_l = pool_lloc.front;
-    /* var lock: atomic bool; */
 
     pool_lloc.front = 0;
     pool_lloc.size = 0;
 
+    ref multiPool = distMultiPool[locID];
+
+    var eachTaskState: [0..#D] atomic bool = BUSY; // one task per GPU
+    var allTasksIdleFlag: atomic bool = false;
+
     coforall gpuID in 0..#D with (ref pool, ref eachExploredTree, ref eachExploredSol,
-      ref eachBest) {
+      ref eachBest, ref multiPool, ref eachTaskState) {
 
       const device = here.gpus[gpuID];
 
       var tree, sol: uint;
-      var pool_loc = new SinglePool_par(Node);
+      ref pool_loc = multiPool[gpuID];
       var best_l = best;
+      var taskState, locState: bool = BUSY;
 
       // each task gets its chunk
       pool_loc.elements[0..#c_l] = pool_lloc.elements[gpuID+f_l.. by D #c_l];
@@ -396,44 +418,52 @@ proc pfsp_search(ref optimum: int, ref exploredTree: uint, ref exploredSol: uint
         pool_loc.size += l_l-c_l;
       }
 
-      var lbound1 = new WrapperLB1(jobs, machines); //lb1_bound_data(jobs, machines);
-      taillard_get_processing_times(lbound1!.lb1_bound.p_times, inst);
-      fill_min_heads_tails(lbound1!.lb1_bound);
+      var parents: [0..#M] Node = noinit;
+      var bounds: [0..#(M*jobs)] int(32) = noinit;
 
-      var lbound2 = new WrapperLB2(jobs, machines);
-      fill_machine_pairs(lbound2!.lb2_bound/*, LB2_FULL*/);
-      fill_lags(lbound1!.lb1_bound.p_times, lbound2!.lb2_bound);
-      fill_johnson_schedules(lbound1!.lb1_bound.p_times, lbound2!.lb2_bound);
-
-      var lbound1_d: lbound1.type;
-      var lbound2_d: lbound2.type;
+      var lbound1_d: WrapperLB1;
+      var lbound2_d: WrapperLB2;
+      var parents_d: WrapperArrayParents;
+      var bounds_d: WrapperArrayBounds;
 
       on device {
         lbound1_d = new WrapperLB1(jobs, machines);
-        lbound1_d!.lb1_bound.p_times   = lbound1!.lb1_bound.p_times;
-        lbound1_d!.lb1_bound.min_heads = lbound1!.lb1_bound.min_heads;
-        lbound1_d!.lb1_bound.min_tails = lbound1!.lb1_bound.min_tails;
+        lbound1_d!.lb1_bound.p_times   = lbound1.p_times;
+        lbound1_d!.lb1_bound.min_heads = lbound1.min_heads;
+        lbound1_d!.lb1_bound.min_tails = lbound1.min_tails;
 
         lbound2_d = new WrapperLB2(jobs, machines);
-        lbound2_d!.lb2_bound.johnson_schedules  = lbound2!.lb2_bound.johnson_schedules;
-        lbound2_d!.lb2_bound.lags               = lbound2!.lb2_bound.lags;
-        lbound2_d!.lb2_bound.machine_pairs      = lbound2!.lb2_bound.machine_pairs;
-        lbound2_d!.lb2_bound.machine_pair_order = lbound2!.lb2_bound.machine_pair_order;
+        lbound2_d!.lb2_bound.johnson_schedules  = lbound2.johnson_schedules;
+        lbound2_d!.lb2_bound.lags               = lbound2.lags;
+        lbound2_d!.lb2_bound.machine_pairs      = lbound2.machine_pairs;
+        lbound2_d!.lb2_bound.machine_pair_order = lbound2.machine_pair_order;
+
+        parents_d = new WrapperArrayParents();
+        bounds_d = new WrapperArrayBounds();
       }
 
       while true {
         /*
           Each task gets its parents nodes from the pool.
         */
-        var poolSize = pool_loc.size;
-        if (poolSize >= m) {
-          poolSize = min(poolSize, M);
-          var parents: [0..#poolSize] Node = noinit;
+        var poolSize = pool_loc.popBackBulk(m, M, parents);
+
+        if (poolSize > 0) {
+          if (taskState == IDLE) {
+            taskState = BUSY;
+            eachTaskState[gpuID].write(BUSY);
+          }
+          if (locState == IDLE) {
+            locState = BUSY;
+            eachLocaleState[locID].write(BUSY);
+          }
+
+          /* poolSize = min(poolSize, M);
           for i in 0..#poolSize {
             var hasWork = 0;
             parents[i] = pool_loc.popBack(hasWork);
             if !hasWork then break;
-          }
+          } */
 
           /*
             TODO: Optimize 'numBounds' based on the fact that the maximum number of
@@ -441,13 +471,11 @@ proc pfsp_search(ref optimum: int, ref exploredTree: uint, ref exploredSol: uint
             something like that.
           */
           const numBounds = jobs * poolSize;
-          var bounds: [0..#numBounds] int(32) = noinit;
 
           on device {
-            const parents_d = parents; // host-to-device
-            var bounds_d: [0..#numBounds] int(32) = noinit;
-            evaluate_gpu(parents_d, numBounds, best_l, lbound1_d, lbound2_d, bounds_d);
-            bounds = bounds_d; // device-to-host
+            parents_d!.arr = parents; // host-to-device
+            evaluate_gpu(parents_d!.arr, numBounds, best_l, lbound1_d, lbound2_d, bounds_d!.arr);
+            bounds = bounds_d!.arr; // device-to-host
           }
 
           /*
@@ -456,18 +484,127 @@ proc pfsp_search(ref optimum: int, ref exploredTree: uint, ref exploredSol: uint
           generate_children(parents, poolSize, bounds, tree, sol, best_l, pool_loc);
         }
         else {
-          break;
+          var localSteal, globalSteal = false;
+
+          // local work stealing attempts
+          const victimTasks = permute(0..#D);
+
+          label WS0 for i in 0..#D {
+            const victimTaskID = victimTasks[i];
+
+            if (victimTaskID != gpuID) { // if not me
+              ref victim = multiPool[victimTaskID];
+              /* nSteal += 1; */
+              var nn = 0;
+
+              label WS1 while (nn < 10) {
+                if victim.lock.compareAndSwap(false, true) { // get the lock
+                  const size = victim.size;
+
+                  if (size >= 2*m) {
+                    var (hasWork, p) = victim.popFrontBulkFree(m, M);
+                    if (hasWork == 0) {
+                      victim.lock.write(false); // reset lock
+                      halt("DEADCODE in work stealing");
+                    }
+
+                    /* for i in 0..#(size/2) {
+                      pool_loc.pushBack(p[i]);
+                    } */
+                    pool_loc.pushBackBulk(p);
+
+                    localSteal = true;
+                    /* nSSteal += 1; */
+                    victim.lock.write(false); // reset lock
+                    break WS0;
+                  }
+
+                  victim.lock.write(false); // reset lock
+                  break WS1;
+                }
+
+                nn += 1;
+                currentTask.yieldExecution();
+              }
+            }
+          }
+
+          if (localSteal == false && numLocales != 1) {
+            // global work stealing attempts
+            const victimLocales = permute(0..#numLocales);
+
+            label WS0 for i in 0..#numLocales {
+              const victimLocaleID = victimLocales[i];
+
+              if (victimLocaleID != locID) { // if not me
+                ref victimMultiPool = distMultiPool[victimLocaleID];
+                const victimTasks = permute(0..#D);
+
+                for j in 0..#D {
+                  const victimTaskID = victimTasks[j];
+                  ref victim = victimMultiPool[victimTaskID];
+                  var nn = 0;
+
+                  label WS1 while (nn < 10) {
+                    if victim.lock.compareAndSwap(false, true) { // get the lock
+                      const size = victim.size;
+
+                      if (size >= 2*m) {
+                        var (hasWork, p) = victim.popFrontBulkFree(m, M);
+                        if (hasWork == 0) {
+                          victim.lock.write(false); // reset lock
+                          halt("DEADCODE in work stealing");
+                        }
+
+                        /* for i in 0..#(size/2) {
+                          pool_loc.pushBack(p[i]);
+                        } */
+                        pool_loc.pushBackBulk(p);
+
+                        globalSteal = true;
+                        /* nSSteal += 1; */
+                        /* victim.lock.write(false); // reset lock */
+                      }
+
+                      victim.lock.write(false); // reset lock
+                      break WS1;
+                    }
+
+                    nn += 1;
+                    currentTask.yieldExecution();
+                  }
+                }
+              }
+            }
+          }
+
+          if (localSteal == false && globalSteal == false) {
+            // termination
+            if (taskState == BUSY) {
+              taskState = IDLE;
+              eachTaskState[gpuID].write(IDLE);
+            }
+            if allIdle(eachTaskState, allTasksIdleFlag) {
+              if (locState == BUSY) {
+                locState = IDLE;
+                eachLocaleState[locID].write(IDLE);
+              }
+              if allIdle(eachLocaleState, allLocalesIdleFlag) {
+                break;
+              }
+            }
+            continue;
+          } else {
+            continue;
+          }
         }
       }
 
-      if lock.compareAndSwap(false, true) {
-        const poolLocSize = pool_loc.size;
-        for p in 0..#poolLocSize {
-          var hasWork = 0;
-          pool.pushBack(pool_loc.popBack(hasWork));
-          if !hasWork then break;
-        }
-        lock.write(false);
+      const poolLocSize = pool_loc.size;
+      for p in 0..#poolLocSize {
+        var hasWork = 0;
+        pool.pushBack(pool_loc.popBack(hasWork));
+        if !hasWork then break;
       }
 
       eachExploredTree[gpuID] = tree;
@@ -497,10 +634,10 @@ proc pfsp_search(ref optimum: int, ref exploredTree: uint, ref exploredSol: uint
   timer.start();
   while true {
     var hasWork = 0;
-    var parent = pool.popBack(hasWork);
+    var parent = pool.popBackFree(hasWork);
     if !hasWork then break;
 
-    decompose(lbound1_p, lbound2_p, parent, exploredTree, exploredSol, best, pool);
+    decompose(lbound1, lbound2, parent, exploredTree, exploredSol, best, pool);
   }
   timer.stop();
   elapsedTime = timer.elapsed();
